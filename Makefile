@@ -6,15 +6,25 @@ help: ## Show this help message
 
 run: ## Run primary-secondary loop example
 	@echo "Running primary-secondary loop simulation..."
-	@cd TanklessBoilers/Examples && omc PrimarySecondaryBoilerTest.mo
+	@echo 'loadFile("TanklessBoilers/package.mo");' > build/run.mos
+	@echo 'loadFile("TanklessBoilers/TanklessBoiler.mo");' >> build/run.mos
+	@echo 'loadFile("TanklessBoilers/SetpointController.mo");' >> build/run.mos
+	@echo 'loadFile("TanklessBoilers/HighLimitController.mo");' >> build/run.mos
+	@echo 'loadFile("TanklessBoilers/MinimumRunTimeController.mo");' >> build/run.mos
+	@echo 'loadFile("TanklessBoilers/Examples/package.mo");' >> build/run.mos
+	@echo 'loadFile("TanklessBoilers/Examples/PrimarySecondaryBoilerTest.mo");' >> build/run.mos
+	@echo 'simulate(TanklessBoilers.Examples.PrimarySecondaryBoilerTest);' >> build/run.mos
+	@echo 'getErrorString();' >> build/run.mos
+	@omc build/run.mos
 
 test: run ## Run simulation test
 	@echo "Simulation complete"
 
 clean: ## Clean build artifacts
 	@rm -rf build/
-	@rm -f *.mat *.log *.json *.c *.o *.h *.makefile *.libs
+	@rm -f *.mat *.log *.json *.c *.o *.h *.makefile *.libs *.so *.fmu
 	@rm -f TanklessBoilers/Examples/*.mat TanklessBoilers/Examples/*.log
+	@rm -f TanklessBoilers.Examples.PrimarySecondaryBoilerTest*
 	@echo "Cleaned build artifacts"
 
 .DEFAULT_GOAL := help
