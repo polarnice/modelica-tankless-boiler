@@ -3,6 +3,7 @@
 # Build directory for all artifacts
 BUILD_DIR := build
 RESULTS_DIR := results
+LOG_DIR := logs
 VENV_DIR := .venv
 
 help: ## Show this help message
@@ -15,40 +16,66 @@ $(BUILD_DIR):
 $(RESULTS_DIR):
 	@mkdir -p $(RESULTS_DIR)
 
-run: $(BUILD_DIR) $(RESULTS_DIR) ## Run primary-secondary loop example
+$(LOG_DIR):
+	@mkdir -p $(LOG_DIR)
+
+run: $(BUILD_DIR) $(RESULTS_DIR) $(LOG_DIR) ## Run primary-secondary loop example
 	@echo "Running primary-secondary loop simulation..."
+	@echo "Logging output to $(LOG_DIR)/simulation.log"
 	@echo 'loadModel(Modelica);' > $(BUILD_DIR)/run.mos
 	@echo 'loadFile("TanklessBoilers/package.mo");' >> $(BUILD_DIR)/run.mos
 	@echo 'checkModel(TanklessBoilers.Examples.PrimarySecondaryBoilerTest);' >> $(BUILD_DIR)/run.mos
 	@echo 'cd("$(BUILD_DIR)");' >> $(BUILD_DIR)/run.mos
-	@echo 'simulate(TanklessBoilers.Examples.PrimarySecondaryBoilerTest, stopTime=3600, numberOfIntervals=5000);' >> $(BUILD_DIR)/run.mos
+	@echo 'simulate(TanklessBoilers.Examples.PrimarySecondaryBoilerTest, stopTime=3600, numberOfIntervals=3600, tolerance=1e-5, simflags="-lv LOG_NLS");' >> $(BUILD_DIR)/run.mos
 	@echo 'getErrorString();' >> $(BUILD_DIR)/run.mos
-	@omc $(BUILD_DIR)/run.mos 2>&1 | grep -v "^Warning:" | grep -v "^Notification:" | grep -v "^Error: Internal" || true
-	@if [ -f $(BUILD_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat ]; then \
+	@omc $(BUILD_DIR)/run.mos 2>&1 | tee $(LOG_DIR)/simulation.log | grep -v "^Warning:" | grep -v "^Notification:" | grep -v "^Error: Internal" || true
+	@if grep -q "Simulation execution failed" $(LOG_DIR)/simulation.log 2>/dev/null || grep -q "resultFile = \"\"" $(LOG_DIR)/simulation.log 2>/dev/null; then \
+		echo ""; \
+		echo "✗ Simulation execution failed!"; \
+		echo "  Check log: $(LOG_DIR)/simulation.log for details"; \
+		exit 1; \
+	elif [ -f $(BUILD_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat ]; then \
 		mv $(BUILD_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat $(RESULTS_DIR)/; \
 		echo ""; \
 		echo "✓ Simulation completed successfully!"; \
 		echo "  Results: $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat"; \
+		echo "  Log: $(LOG_DIR)/simulation.log"; \
 	else \
 		echo ""; \
 		echo "✗ Simulation failed - no results file generated"; \
+		echo "  Check log: $(LOG_DIR)/simulation.log"; \
 		exit 1; \
 	fi
 
-plot: $(RESULTS_DIR) ## Generate plots from simulation results
+plot: $(RESULTS_DIR) $(LOG_DIR) ## Generate plots from simulation results
 	@if [ ! -f $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat ]; then \
 		echo "Error: No results file found. Run 'make run' first."; \
 		exit 1; \
 	fi
 	@echo "Generating plots..."
-	@python3 plot_results.py $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat
+	@echo "Logging plot output to $(LOG_DIR)/plot.log"
+	@python3 plot_results.py $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat 2>&1 | tee $(LOG_DIR)/plot.log
 	@if [ -f $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res_plots.png ]; then \
 		echo "✓ Plots saved to $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res_plots.png"; \
+		echo "  Log: $(LOG_DIR)/plot.log"; \
+	else \
+		echo "✗ Plot generation may have failed"; \
+		echo "  Check log: $(LOG_DIR)/plot.log"; \
+		exit 1; \
 	fi
 
 test: run plot ## Run simulation and generate plots
 	@echo ""
-	@echo "✓ Test complete - simulation and plots generated"
+	@if [ -f $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat ] && [ -f $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res_plots.png ]; then \
+		echo "✓ Test complete - simulation and plots generated"; \
+		echo "  Results: $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat"; \
+		echo "  Plots: $(RESULTS_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res_plots.png"; \
+		echo "  Logs: $(LOG_DIR)/"; \
+	else \
+		echo "✗ Test failed - missing results or plots"; \
+		echo "  Check logs: $(LOG_DIR)/"; \
+		exit 1; \
+	fi
 
 setup: ## Setup development environment (install dependencies and git hooks)
 	@echo "Setting up development environment..."
@@ -115,11 +142,11 @@ lint-modelica: ## Lint Modelica files with rumoca
 	echo "✓ Modelica linting complete"
 
 clean: ## Clean build artifacts
-	@rm -rf $(BUILD_DIR)/ $(RESULTS_DIR)/
+	@rm -rf $(BUILD_DIR)/ $(RESULTS_DIR)/ $(LOG_DIR)/
 	@rm -f *.mat *.log *.json *.c *.o *.h *.makefile *.libs *.so *.fmu *.xml
 	@rm -f TanklessBoilers/Examples/*.mat TanklessBoilers/Examples/*.log
 	@rm -f TanklessBoilers.Examples.PrimarySecondaryBoilerTest*
-	@echo "✓ Cleaned build artifacts"
+	@echo "✓ Cleaned build artifacts and logs"
 
 .DEFAULT_GOAL := help
 

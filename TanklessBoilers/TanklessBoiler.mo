@@ -16,12 +16,16 @@ model TanklessBoiler "Tankless boiler model with control inputs"
   constant Real defaultHeadFt = 13.1 "Default pump head (feet)";
   constant Real defaultEta = 0.96 "Default efficiency (96% AFUE)";
   constant Real defaultLengthIn = 39.37 "Default boiler pipe length (inches)";
-  constant Real defaultDiameterIn = 1.97 "Default boiler pipe diameter (inches)";
+  constant Real defaultDiameterIn = 1.0 "Default boiler pipe diameter (inches) - 1 inch copper";
+  // Initial condition constants (for consistency across all fluid components)
+  constant SI.Temperature T_init = 293.15 "Initial temperature for all components (20°C = 68°F)";
+  constant SI.Pressure p_init = 101325 "Initial pressure for all components (1 atm = 101325 Pa)";
   // Parameters (user-friendly units)
   parameter Real qMaxKbtu = 120 "Maximum heat output (kBTU/h)" annotation(Dialog(group = "Heat Output"));
   parameter Real qMinKbtu = 15 "Minimum heat output (kBTU/h)" annotation(Dialog(group = "Heat Output"));
   parameter Real tSetpointF = 170 "Water temperature setpoint (°F)" annotation(Dialog(group = "Temperature"));
   parameter Real deadbandF = 10 "Hysteresis deadband (°F) - total width for setpoint control" annotation(Dialog(group = "Temperature"));
+  parameter Real modulationRangeF = 20.0 "Modulation temperature range (°F) - modulates from Q_max at (T_setpoint - modulationRangeF) to Q_min at T_setpoint" annotation(Dialog(group = "Temperature"));
   parameter Real highLimitF = 180 "High limit safety cutoff (°F)" annotation(Dialog(group = "Temperature"));
   parameter Real tAntiShortCycleMin = 5.0 "Anti-short cycle delay time (minutes)" annotation(Dialog(group = "Temperature"));
   parameter Real tMinRunSec = 60.0 "Minimum run time (seconds) - boiler must run at least this long" annotation(Dialog(group = "Temperature"));
@@ -34,6 +38,7 @@ model TanklessBoiler "Tankless boiler model with control inputs"
   parameter SI.Temperature T_setpoint = (tSetpointF - fToCOffset) * fToCScale + kelvinOffset "Water temperature setpoint (K)";
   // Deadband conversion: for temperature differences, ΔT_K = ΔT_F * 5/9
   parameter SI.Temperature deadband = deadbandF * fToCScale "Hysteresis deadband (K)";
+  parameter SI.Temperature modulationRange = modulationRangeF * fToCScale "Modulation temperature range (K)";
   parameter SI.Temperature highLimit = (highLimitF - fToCOffset) * fToCScale + kelvinOffset "High limit safety cutoff (K)";
   parameter SI.Time t_anti_short_cycle = tAntiShortCycleMin * 60 "Anti-short cycle delay time (s)";
   parameter SI.Time t_min_run = tMinRunSec "Minimum run time (s)";
@@ -63,6 +68,8 @@ model TanklessBoiler "Tankless boiler model with control inputs"
   Modelica.Blocks.Interfaces.RealOutput T_inlet "Inlet water temperature (K)" annotation(Placement(transformation(extent = {{100, -90}, {120, -70}})));
   Modelica.Blocks.Interfaces.RealOutput T_outlet "Outlet water temperature (K)" annotation(Placement(transformation(extent = {{100, -110}, {120, -90}})));
   Modelica.Blocks.Interfaces.BooleanOutput highLimitTripped "High limit trip status" annotation(Placement(transformation(extent = {{100, 70}, {120, 90}})));
+  Modelica.Blocks.Interfaces.RealOutput Q_modulated_kBTU "Modulated heat output (kBTU/h)" annotation(Placement(transformation(extent = {{100, -130}, {120, -110}})));
+  Modelica.Blocks.Interfaces.RealOutput modulationPercent "Modulation percentage (0-100%)" annotation(Placement(transformation(extent = {{100, -150}, {120, -130}})));
   // ============================================================================
   // HEAT EXCHANGER AND COMBUSTION CHAMBER
   // ============================================================================
@@ -74,14 +81,13 @@ model TanklessBoiler "Tankless boiler model with control inputs"
   // Heat flow: combustionChamber → heatExchangerCollector → boilerPipe nodes
   // Water flow: port_a → ... → boilerPipe → ... → port_b
   // ============================================================================
-  Modelica.Fluid.Pipes.DynamicPipe boilerPipe(redeclare package Medium = Medium, length = length, diameter = diameter, nNodes = nNodes, use_HeatTransfer = true) "Heat exchanger tubes - water flows through and gets heated" annotation(Placement(transformation(extent = {{50, -10}, {70, 10}})));
+  Modelica.Fluid.Pipes.DynamicPipe boilerPipe(redeclare package Medium = Medium, length = length, diameter = diameter, nNodes = nNodes, use_HeatTransfer = true, T_start = T_init, p_a_start = p_init, p_b_start = p_init) "Heat exchanger tubes - water flows through and gets heated" annotation(Placement(transformation(extent = {{50, -10}, {70, 10}})));
   Modelica.Thermal.HeatTransfer.Sources.PrescribedHeatFlow combustionChamber "Gas burner - adds heat to the heat exchanger from outside" annotation(Placement(transformation(extent = {{-10, 30}, {10, 50}})));
   Modelica.Thermal.HeatTransfer.Components.ThermalCollector heatExchangerCollector(m = nNodes) "Collects heat ports from all heat exchanger nodes to connect to combustion chamber" annotation(Placement(transformation(extent = {{-10, 10}, {10, 30}})));
   Modelica.Thermal.HeatTransfer.Components.ThermalCollector returnPipeCollector(m = 2) "Collect heat from return pipe" annotation(Placement(transformation(extent = {{-50, 10}, {-30, 30}})));
   Modelica.Thermal.HeatTransfer.Components.ThermalCollector outletPipeCollector(m = 2) "Collect heat from outlet pipe" annotation(Placement(transformation(extent = {{70, 10}, {90, 30}})));
   Modelica.Thermal.HeatTransfer.Components.ThermalCollector dischargePipeCollector(m = 2) "Collect heat from discharge pipe" annotation(Placement(transformation(extent = {{-20, 10}, {0, 30}})));
-  Modelica.Blocks.Logical.Switch enableSwitch "On/off switch: Q_max when enabled, 0 when disabled" annotation(Placement(transformation(extent = {{-30, -10}, {-10, 10}})));
-  Modelica.Blocks.Sources.Constant maxHeat(k = Q_max) "Maximum heat output when enabled" annotation(Placement(transformation(extent = {{-60, 10}, {-40, 30}})));
+  Modelica.Blocks.Logical.Switch enableSwitch "On/off switch: modulated heat when enabled, 0 when disabled" annotation(Placement(transformation(extent = {{-30, -10}, {-10, 10}})));
   Modelica.Blocks.Sources.Constant zeroHeat(k = 0) "Zero heat when disabled" annotation(Placement(transformation(extent = {{-60, -30}, {-40, -10}})));
   // Setpoint controller (with hysteresis)
   SetpointController setpointController(T_setpoint = T_setpoint, deadband = deadband) "Setpoint control with hysteresis" annotation(Placement(transformation(extent = {{-40, 40}, {-20, 60}})));
@@ -89,33 +95,43 @@ model TanklessBoiler "Tankless boiler model with control inputs"
   HighLimitController highLimitController(T_max = highLimit, t_anti_short_cycle = t_anti_short_cycle) "High limit control with anti-short cycle delay" annotation(Placement(transformation(extent = {{-40, 60}, {-20, 80}})));
   // Minimum run time controller
   MinimumRunTimeController minimumRunTimeController(t_min_run = t_min_run) "Minimum run time control (high limit can override)" annotation(Placement(transformation(extent = {{-40, 20}, {-20, 40}})));
+  // Modulation controller
+  ModulationController modulationController(T_setpoint = T_setpoint, Q_min = Q_min, Q_max = Q_max, modulationRange = modulationRange) "Modulation controller - adjusts firing rate based on inlet temperature" annotation(Placement(transformation(extent = {{-40, -40}, {-20, -20}})));
   // Combine all enable conditions
   Modelica.Blocks.Logical.And setpointAndHighLimit "Combine setpoint OK and high limit OK" annotation(Placement(transformation(extent = {{-80, 50}, {-60, 70}})));
   Modelica.Blocks.Logical.And boilerWantsToFire "Signal indicating boiler wants to fire (external enable AND setpoint/high limit OK)" annotation(Placement(transformation(extent = {{-100, 20}, {-80, 40}})));
   Modelica.Blocks.Logical.Or boilerEnableWithMinRunTime "Boiler enable: wants to fire OR must stay on (min time)" annotation(Placement(transformation(extent = {{-40, 0}, {-20, 20}})));
   Modelica.Blocks.Logical.And boilerEnableLogic "Final enable logic: external enable AND setpoint OK AND high limit OK AND minimum run time OK" annotation(Placement(transformation(extent = {{-60, -60}, {-40, -40}})));
-  Modelica.Fluid.Machines.PrescribedPump primaryPump(redeclare package Medium = Medium, rho_nominal = rho_nominal, N_nominal = 1500, use_N_in = true, redeclare function flowCharacteristic = Modelica.Fluid.Machines.BaseClasses.PumpCharacteristics.quadraticFlow(V_flow_nominal = {0, V_flow_nominal, 2*V_flow_nominal}, head_nominal = {2*head_nominal, head_nominal, 0})) "Primary loop circulator pump (speed controlled by enable signal)" annotation(Placement(transformation(extent = {{-70, -10}, {-50, 10}})));
+  Modelica.Fluid.Machines.PrescribedPump primaryPump(redeclare package Medium = Medium, rho_nominal = rho_nominal, N_nominal = 750, use_N_in = true, T_start = T_init, p_a_start = p_init, p_b_start = p_init, redeclare function flowCharacteristic = Modelica.Fluid.Machines.BaseClasses.PumpCharacteristics.quadraticFlow(V_flow_nominal = {0, V_flow_nominal, 2*V_flow_nominal}, head_nominal = {2*head_nominal, head_nominal, 0})) "Primary loop circulator pump (speed controlled by enable signal, 50% speed = 750 RPM)" annotation(Placement(transformation(extent = {{-70, -10}, {-50, 10}})));
   Modelica.Blocks.Math.BooleanToReal pumpSpeedConverter "Convert enable signal to pump speed (1.0 = enabled, 0.0 = disabled)" annotation(Placement(transformation(extent = {{-100, 40}, {-80, 60}})));
-  Modelica.Blocks.Math.Gain pumpSpeedGain(k = 1500) "Scale to pump nominal speed (1500 RPM when enabled, 0 RPM when disabled)" annotation(Placement(transformation(extent = {{-70, 40}, {-50, 60}})));
+  Modelica.Blocks.Math.Gain pumpSpeedGain(k = 750) "Scale to pump nominal speed (750 RPM when enabled, 0 RPM when disabled - 50% of original 1500 RPM)" annotation(Placement(transformation(extent = {{-70, 40}, {-50, 60}})));
   Modelica.Fluid.Sensors.Pressure p_sensor(redeclare package Medium = Medium) "Pressure sensor after pump" annotation(Placement(transformation(extent = {{-40, -10}, {-20, 10}})));
   Modelica.Fluid.Sensors.TemperatureTwoPort T_inletSensor(redeclare package Medium = Medium) "Inlet temperature sensor (two-port)" annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));
   Modelica.Fluid.Sensors.MassFlowRate m_flowSensor(redeclare package Medium = Medium) "Mass flow rate sensor" annotation(Placement(transformation(extent = {{20, -10}, {40, 10}})));
   Modelica.Fluid.Sensors.TemperatureTwoPort T_outletSensor(redeclare package Medium = Medium) "Outlet temperature sensor (two-port)" annotation(Placement(transformation(extent = {{90, -10}, {110, 10}})));
   // Convert pressure from Pa to PSI (1 PSI = 6894.76 Pa)
   Modelica.Blocks.Math.Gain p_PSI_converter(k = 1 / 6894.76) "Convert pressure from Pa to PSI" annotation(Placement(transformation(extent = {{60, -60}, {80, -40}})));
+  // Convert heat output from W to kBTU/h (1 kBTU/h = 1000 * 1055.06 / 3600 W)
+  Modelica.Blocks.Math.Gain Q_kBTU_converter(k = 3600 / (1000 * btuToJoules)) "Convert heat output from W to kBTU/h" annotation(Placement(transformation(extent = {{60, -100}, {80, -80}})));
+  // Calculate modulation percentage: (Q - Q_min) / (Q_max - Q_min) * 100
+  Modelica.Blocks.Math.Add subtractQMin(k2 = -1.0) "Subtract Q_min from Q" annotation(Placement(transformation(extent = {{60, -130}, {80, -110}})));
+  Modelica.Blocks.Sources.Constant qMinConstant(k = Q_min) "Q_min constant for subtraction" annotation(Placement(transformation(extent = {{40, -130}, {60, -110}})));
+  Modelica.Blocks.Math.Division divideByRange "Divide by (Q_max - Q_min)" annotation(Placement(transformation(extent = {{80, -130}, {100, -110}})));
+  Modelica.Blocks.Math.Gain percentGain(k = 100.0) "Multiply by 100 to get percentage" annotation(Placement(transformation(extent = {{100, -150}, {120, -130}})));
+  Modelica.Blocks.Sources.Constant qRangeConstant(k = Q_max - Q_min) "Q_max - Q_min for percentage calculation" annotation(Placement(transformation(extent = {{40, -150}, {60, -130}})));
   // Ambient heat transfer for natural cooling (using thermal conductor)
   Modelica.Thermal.HeatTransfer.Components.ThermalConductor ambientConductor(G = 5.0) "Thermal conductor for ambient heat loss from primary loop pipes" annotation(Placement(transformation(extent = {{10, -60}, {30, -80}})));
   // Ambient temperature source (internal, no external connection needed)
   Modelica.Thermal.HeatTransfer.Sources.FixedTemperature ambientTemp(T = T_ambient) "Ambient temperature source (e.g., basement at ~68°F)" annotation(Placement(transformation(extent = {{40, -60}, {60, -80}})));
   // Closely spaced tees for hydraulic separation
-  Modelica.Fluid.Fittings.TeeJunctionVolume supplyTee(redeclare package Medium = Medium, V = 0.000001) "Supply tee (1 mL volume)" annotation(Placement(transformation(extent = {{-100, -10}, {-80, 10}})));
-  Modelica.Fluid.Fittings.TeeJunctionVolume returnTee(redeclare package Medium = Medium, V = 0.000001) "Return tee (1 mL volume)" annotation(Placement(transformation(extent = {{100, -10}, {120, 10}})));
+  Modelica.Fluid.Fittings.TeeJunctionVolume supplyTee(redeclare package Medium = Medium, V = 0.000001, T_start = T_init, p_start = p_init) "Supply tee (1 mL volume)" annotation(Placement(transformation(extent = {{-100, -10}, {-80, 10}})));
+  Modelica.Fluid.Fittings.TeeJunctionVolume returnTee(redeclare package Medium = Medium, V = 0.000001, T_start = T_init, p_start = p_init) "Return tee (1 mL volume)" annotation(Placement(transformation(extent = {{100, -10}, {120, 10}})));
   // Common pipe between tees (bypass)
   Modelica.Fluid.Pipes.StaticPipe commonPipe(redeclare package Medium = Medium, length = 0.15, diameter = diameter, height_ab = 0) "Common pipe bypass" annotation(Placement(transformation(extent = {{-70, -30}, {70, -10}})));
   // Primary loop piping
-  Modelica.Fluid.Pipes.DynamicPipe returnPipe(redeclare package Medium = Medium, length = 0.6, diameter = diameter, nNodes = 2, use_HeatTransfer = true) "Return pipe (tee to boiler inlet)" annotation(Placement(transformation(extent = {{-50, -10}, {-30, 10}})));
-  Modelica.Fluid.Pipes.DynamicPipe boilerOutletPipe(redeclare package Medium = Medium, length = 0.45, diameter = diameter, nNodes = 2, use_HeatTransfer = true) "Boiler outlet to pump" annotation(Placement(transformation(extent = {{70, -10}, {90, 10}})));
-  Modelica.Fluid.Pipes.DynamicPipe pumpDischargePipe(redeclare package Medium = Medium, length = 0.45, diameter = diameter, nNodes = 2, use_HeatTransfer = true) "Pump discharge to supply tee" annotation(Placement(transformation(extent = {{-20, -10}, {0, 10}})));
+  Modelica.Fluid.Pipes.DynamicPipe returnPipe(redeclare package Medium = Medium, length = 0.6, diameter = diameter, nNodes = 2, use_HeatTransfer = true, T_start = T_init, p_a_start = p_init, p_b_start = p_init) "Return pipe (tee to boiler inlet)" annotation(Placement(transformation(extent = {{-50, -10}, {-30, 10}})));
+  Modelica.Fluid.Pipes.DynamicPipe boilerOutletPipe(redeclare package Medium = Medium, length = 0.45, diameter = diameter, nNodes = 2, use_HeatTransfer = true, T_start = T_init, p_a_start = p_init, p_b_start = p_init) "Boiler outlet to pump" annotation(Placement(transformation(extent = {{70, -10}, {90, 10}})));
+  Modelica.Fluid.Pipes.DynamicPipe pumpDischargePipe(redeclare package Medium = Medium, length = 0.45, diameter = diameter, nNodes = 2, use_HeatTransfer = true, T_start = T_init, p_a_start = p_init, p_b_start = p_init) "Pump discharge to supply tee" annotation(Placement(transformation(extent = {{-20, -10}, {0, 10}})));
   // ============================================================================
   // CONNECTIONS - LOGICAL ONLY (NO GRAPHICAL ANNOTATIONS)
   // ============================================================================
@@ -143,7 +159,7 @@ equation
   connect(supplyTee.port_3, port_a);
   connect(port_b, returnTee.port_3);
   // Pump speed is controlled by the enable signal:
-  // - When enable = true: pump runs at 1500 RPM (N_nominal)
+  // - When enable = true: pump runs at 750 RPM (50% of original 1500 RPM)
   // - When enable = false: pump runs at 0 RPM (off)
   connect(enable, pumpSpeedConverter.u);
   connect(pumpSpeedConverter.y, pumpSpeedGain.u);
@@ -186,8 +202,10 @@ equation
   // Final enable logic
   connect(enable, boilerEnableLogic.u1);
   connect(boilerEnableWithMinRunTime.y, boilerEnableLogic.u2);
-  // Control logic: on/off switch - Q_max when enabled, 0 when disabled
-  connect(maxHeat.y, enableSwitch.u1);
+  // Modulation controller - reads inlet temperature
+  connect(T_inletSensor.T, modulationController.T_inlet);
+  // Control logic: on/off switch - modulated heat when enabled, 0 when disabled
+  connect(modulationController.Q_modulated, enableSwitch.u1);
   connect(zeroHeat.y, enableSwitch.u3);
   connect(boilerEnableLogic.y, enableSwitch.u2);
   connect(enableSwitch.y, combustionChamber.Q_flow);
@@ -201,4 +219,14 @@ equation
   connect(T_outletSensor.T, T_outlet);
   // High limit status output
   connect(highLimitController.highLimitTripped, highLimitTripped);
+  // Modulation outputs: convert Q_modulated to kBTU/h and percentage
+  connect(modulationController.Q_modulated, Q_kBTU_converter.u);
+  connect(Q_kBTU_converter.y, Q_modulated_kBTU);
+  // Calculate modulation percentage
+  connect(modulationController.Q_modulated, subtractQMin.u1);
+  connect(qMinConstant.y, subtractQMin.u2);
+  connect(subtractQMin.y, divideByRange.u1);
+  connect(qRangeConstant.y, divideByRange.u2);
+  connect(divideByRange.y, percentGain.u);
+  connect(percentGain.y, modulationPercent);
 end TanklessBoiler;
