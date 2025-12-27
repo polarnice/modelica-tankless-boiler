@@ -28,6 +28,7 @@ __pycache__/
 *.swp
 *.swo
 *~
+*.code-workspace
 
 # OS files
 .DS_Store
