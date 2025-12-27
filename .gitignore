@@ -1,11 +1,12 @@
 # Build artifacts
 build/
+results/
 *.mat
 *.log
-*.json
 *.exe
 *.dll
 *.so
+*.xml
 
 # OpenModelica temp files
 *.c
@@ -14,6 +15,7 @@ build/
 *.makefile
 *.libs
 *.fmu
+TanklessBoilers.Examples.*
 
 # Python
 __pycache__/
@@ -21,6 +23,8 @@ __pycache__/
 *.pyo
 *.egg-info/
 .pytest_cache/
+.venv/
+venv/
 
 # Editor files
 .vscode/
@@ -29,6 +33,9 @@ __pycache__/
 *.swo
 *~
 *.code-workspace
+
+# Devcontainer
+!.devcontainer/
 
 # OS files
 .DS_Store

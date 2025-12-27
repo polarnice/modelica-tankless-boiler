@@ -37,6 +37,42 @@ This architecture allows:
 - Multiple secondary loops with different flow rates
 - Protection of boiler from low-flow conditions
 
+## Getting Started
+
+### Prerequisites
+
+- OpenModelica (for simulation)
+- Python 3.10+ (for plotting)
+- `uv` (Python package manager - installed automatically via `make setup`)
+
+### Initial Setup
+
+1. Clone the repository
+2. Run the setup command to install dependencies and git hooks:
+
+```bash
+make setup
+```
+
+This will:
+- Install `uv` package manager (if not already installed)
+- Create a Python virtual environment (`.venv/`)
+- Install Python dependencies (matplotlib, numpy, dymat)
+- Install TruffleHog for secret scanning
+- Set up the pre-commit git hook
+
+### Development Workflow
+
+```bash
+make test    # Run simulation and generate plots
+make run     # Run simulation only
+make plot    # Generate plots from existing results
+make lint    # Run security scanning
+make clean   # Remove build artifacts
+```
+
+The pre-commit hook will automatically run `make lint` before each commit to scan for secrets.
+
 ## Usage
 
 The primary example demonstrates a complete primary-secondary loop system:
@@ -81,21 +117,56 @@ For the complete implementation, see `TanklessBoilers/Examples/PrimarySecondaryB
 
 ## Development
 
-### Running the Example
+### Running Simulations
+
+The project includes a Makefile for easy simulation and analysis:
 
 ```bash
-# Compile and run primary-secondary loop test
-omc --simulate TanklessBoilers.Examples.PrimarySecondaryBoilerTest.mo
+# Show available commands
+make help
 
-# Or use the Makefile
-make primary
+# Run simulation only (results saved to results/ directory)
+make run
+
+# Generate plots from existing results
+make plot
+
+# Run simulation and generate plots (recommended)
+make test
+
+# Clean all build artifacts
+make clean
 ```
 
-## Known Issues
+### Output Structure
 
-- Primary-secondary example needs proper load modeling in secondary loop
-- Common pipe between closely spaced tees should be added for realistic hydraulic behavior
-- Expansion tank not yet included in examples
+- `build/` - Temporary build artifacts (C files, object files, executables)
+- `results/` - Simulation results (.mat files) and plots (.png files)
+- Root directory stays clean!
+
+### Plotting Results
+
+The `plot_results.py` script generates comprehensive plots:
+- Boiler heat output and temperatures
+- Primary and secondary loop flow rates  
+- Storage tank temperature and level
+- Summary statistics
+
+```bash
+# Plot existing results
+python3 plot_results.py results/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat
+```
+
+## System Features
+
+### Implemented
+- ✅ Tankless boiler with on/off control
+- ✅ Primary/secondary loop with closely spaced tees (using TeeJunctionVolume)
+- ✅ Hydraulic separation between loops
+- ✅ 50-gallon storage tank with heat loss
+- ✅ Independent pump control for each loop
+- ✅ High limit and setpoint control with anti-short cycle
+- ✅ Minimum run time enforcement
 
 ## License
 

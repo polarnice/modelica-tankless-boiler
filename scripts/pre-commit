@@ -1,0 +1,14 @@
+#!/bin/bash
+# Pre-commit hook to scan for secrets using TruffleHog
+
+set -e
+
+echo "Running pre-commit checks..."
+echo "Scanning for secrets with TruffleHog..."
+
+# Run make lint
+make lint
+
+echo "✓ Pre-commit checks passed!"
+exit 0
+

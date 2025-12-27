@@ -106,23 +106,46 @@ model TanklessBoiler "Tankless boiler model with control inputs"
   Modelica.Blocks.Interfaces.BooleanOutput highLimitTripped "High limit trip status"
     annotation(Placement(transformation(extent = {{100, 70}, {120, 90}})));
 
-  // Internal components
+  // ============================================================================
+  // HEAT EXCHANGER AND COMBUSTION CHAMBER
+  // ============================================================================
+  // Physical model of a tankless boiler:
+  //   - boilerPipe = heat exchanger tubes that water flows through (10 nodes)
+  //   - combustionChamber = gas burner that heats the tubes from outside
+  //   - heatExchangerCollector = connects all tube nodes to the burner
+  //
+  // Heat flow: combustionChamber → heatExchangerCollector → boilerPipe nodes
+  // Water flow: port_a → ... → boilerPipe → ... → port_b
+  // ============================================================================
+  
   Modelica.Fluid.Pipes.DynamicPipe boilerPipe(
     redeclare package Medium = Medium,
     length = length,
     diameter = diameter,
     nNodes = nNodes,
     use_HeatTransfer = true)
-    "Boiler pipe"
+    "Heat exchanger tubes - water flows through and gets heated"
     annotation(Placement(transformation(extent = {{50, -10}, {70, 10}})));
   
-  Modelica.Thermal.HeatTransfer.Sources.PrescribedHeatFlow heater
-    "Heat source"
+  Modelica.Thermal.HeatTransfer.Sources.PrescribedHeatFlow combustionChamber
+    "Gas burner - adds heat to the heat exchanger from outside"
     annotation(Placement(transformation(extent = {{-10, 30}, {10, 50}})));
   
-  Modelica.Thermal.HeatTransfer.Components.ThermalCollector heatCollector(m = nNodes)
-    "Collect heat from pipe nodes"
+  Modelica.Thermal.HeatTransfer.Components.ThermalCollector heatExchangerCollector(m = nNodes)
+    "Collects heat ports from all heat exchanger nodes to connect to combustion chamber"
     annotation(Placement(transformation(extent = {{-10, 10}, {10, 30}})));
+
+  Modelica.Thermal.HeatTransfer.Components.ThermalCollector returnPipeCollector(m = 2)
+    "Collect heat from return pipe"
+    annotation(Placement(transformation(extent = {{-50, 10}, {-30, 30}})));
+
+  Modelica.Thermal.HeatTransfer.Components.ThermalCollector outletPipeCollector(m = 2)
+    "Collect heat from outlet pipe"
+    annotation(Placement(transformation(extent = {{70, 10}, {90, 30}})));
+
+  Modelica.Thermal.HeatTransfer.Components.ThermalCollector dischargePipeCollector(m = 2)
+    "Collect heat from discharge pipe"
+    annotation(Placement(transformation(extent = {{-20, 10}, {0, 30}})));
   
   Modelica.Blocks.Logical.Switch enableSwitch
     "On/off switch: Q_max when enabled, 0 when disabled"
@@ -198,16 +221,16 @@ model TanklessBoiler "Tankless boiler model with control inputs"
     "Pressure sensor after pump"
     annotation(Placement(transformation(extent = {{-40, -10}, {-20, 10}})));
   
-  Modelica.Fluid.Sensors.Temperature T_inletSensor(redeclare package Medium = Medium)
-    "Inlet temperature sensor (after pump)"
+  Modelica.Fluid.Sensors.TemperatureTwoPort T_inletSensor(redeclare package Medium = Medium)
+    "Inlet temperature sensor (two-port)"
     annotation(Placement(transformation(extent = {{-10, -10}, {10, 10}})));
   
   Modelica.Fluid.Sensors.MassFlowRate m_flowSensor(redeclare package Medium = Medium)
     "Mass flow rate sensor"
     annotation(Placement(transformation(extent = {{20, -10}, {40, 10}})));
   
-  Modelica.Fluid.Sensors.Temperature T_outletSensor(redeclare package Medium = Medium)
-    "Outlet temperature sensor"
+  Modelica.Fluid.Sensors.TemperatureTwoPort T_outletSensor(redeclare package Medium = Medium)
+    "Outlet temperature sensor (two-port)"
     annotation(Placement(transformation(extent = {{90, -10}, {110, 10}})));
 
   // Convert pressure from Pa to PSI (1 PSI = 6894.76 Pa)
@@ -217,7 +240,7 @@ model TanklessBoiler "Tankless boiler model with control inputs"
 
   // Ambient heat transfer for natural cooling (using thermal conductor)
   Modelica.Thermal.HeatTransfer.Components.ThermalConductor ambientConductor(G = 5.0)
-    "Thermal conductor for ambient heat loss (e.g., basement at ~68°F)"
+    "Thermal conductor for ambient heat loss from primary loop pipes"
     annotation(Placement(transformation(extent = {{10, -60}, {30, -80}})));
 
   // Ambient temperature source (internal, no external connection needed)
@@ -225,159 +248,181 @@ model TanklessBoiler "Tankless boiler model with control inputs"
     "Ambient temperature source (e.g., basement at ~68°F)"
     annotation(Placement(transformation(extent = {{40, -60}, {60, -80}})));
 
-  // Return pipe to complete the closed loop (represents closely-spaced tees)
-  Modelica.Fluid.Pipes.DynamicPipe closelySpacedTees(
+  // Closely spaced tees for hydraulic separation
+  Modelica.Fluid.Fittings.TeeJunctionVolume supplyTee(
     redeclare package Medium = Medium,
-    length = 0.3,  // 30 cm short pipe
+    V = 0.000001)
+    "Supply tee (1 mL volume)"
+    annotation(Placement(transformation(extent = {{-100, -10}, {-80, 10}})));
+
+  Modelica.Fluid.Fittings.TeeJunctionVolume returnTee(
+    redeclare package Medium = Medium,
+    V = 0.000001)
+    "Return tee (1 mL volume)"
+    annotation(Placement(transformation(extent = {{100, -10}, {120, 10}})));
+
+  // Common pipe between tees (bypass)
+  Modelica.Fluid.Pipes.StaticPipe commonPipe(
+    redeclare package Medium = Medium,
+    length = 0.15,
     diameter = diameter,
-    nNodes = nNodes,
-    modelStructure = Modelica.Fluid.Types.ModelStructure.a_v_b,
+    height_ab = 0)
+    "Common pipe bypass"
+    annotation(Placement(transformation(extent = {{-70, -30}, {70, -10}})));
+
+  // Primary loop piping
+  Modelica.Fluid.Pipes.DynamicPipe returnPipe(
+    redeclare package Medium = Medium,
+    length = 0.6,
+    diameter = diameter,
+    nNodes = 2,
     use_HeatTransfer = true)
-    "Return pipe completing primary loop (represents closely-spaced tees)"
-    annotation(Placement(transformation(extent = {{-90, -10}, {-70, 10}})));
+    "Return pipe (tee to boiler inlet)"
+    annotation(Placement(transformation(extent = {{-50, -10}, {-30, 10}})));
+
+  Modelica.Fluid.Pipes.DynamicPipe boilerOutletPipe(
+    redeclare package Medium = Medium,
+    length = 0.45,
+    diameter = diameter,
+    nNodes = 2,
+    use_HeatTransfer = true)
+    "Boiler outlet to pump"
+    annotation(Placement(transformation(extent = {{70, -10}, {90, 10}})));
+
+  Modelica.Fluid.Pipes.DynamicPipe pumpDischargePipe(
+    redeclare package Medium = Medium,
+    length = 0.45,
+    diameter = diameter,
+    nNodes = 2,
+    use_HeatTransfer = true)
+    "Pump discharge to supply tee"
+    annotation(Placement(transformation(extent = {{-20, -10}, {0, 10}})));
 
 equation
-  // Fluid connections for primary/secondary loop with closely spaced tees
-  // Primary loop: port_b (secondary return) → closelySpacedTees → pump → sensors → boiler → sensors → port_a (secondary supply)
-  // The closely-spaced tees allow the secondary loop to draw hot water and return cooler water
+  // ============================================================================
+  // CONNECTIONS - LOGICAL ONLY (NO GRAPHICAL ANNOTATIONS)
+  // ============================================================================
+  // NOTE: Do NOT add annotation(Line(...)) statements to connect() calls!
+  // They make the code harder to read and maintain. We rely on logical
+  // connections only. The graphical layout is handled separately by the IDE.
+  // ============================================================================
+  
+  // PRIMARY LOOP (pump on HOT side):
+  // returnTee → returnPipe → T_inlet → m_flow → boilerPipe → T_outlet → boilerOutletPipe → pump → p_sensor → pumpDischargePipe → supplyTee
+  
+  connect(returnTee.port_1, returnPipe.port_a);
+  connect(returnPipe.port_b, T_inletSensor.port_a);
+  connect(T_inletSensor.port_b, m_flowSensor.port_a);
+  connect(m_flowSensor.port_b, boilerPipe.port_a);
+  connect(boilerPipe.port_b, T_outletSensor.port_a);
+  connect(T_outletSensor.port_b, boilerOutletPipe.port_a);
+  connect(boilerOutletPipe.port_b, primaryPump.port_a);
+  connect(primaryPump.port_b, p_sensor.port);
+  connect(p_sensor.port, pumpDischargePipe.port_a);
+  connect(pumpDischargePipe.port_b, supplyTee.port_1);
 
-  // Primary loop: return from secondary loop through closely spaced tees to pump
-  connect(port_b, closelySpacedTees.port_a)
-    annotation(Line(points = {{-100, 0}, {-90, 0}}, color = {0, 127, 255}));
+  // Bypass: supply tee → common pipe → return tee
+  connect(supplyTee.port_2, commonPipe.port_a);
+  connect(commonPipe.port_b, returnTee.port_2);
 
-  connect(closelySpacedTees.port_b, primaryPump.port_a)
-    annotation(Line(points = {{-70, 0}, {-70, 0}}, color = {0, 127, 255}));
-
-  connect(primaryPump.port_b, p_sensor.port)
-    annotation(Line(points = {{-50, 0}, {-40, 0}}, color = {0, 127, 255}));
-
-  connect(p_sensor.port, T_inletSensor.port)
-    annotation(Line(points = {{-20, 0}, {-10, 0}}, color = {0, 127, 255}));
-
-  connect(T_inletSensor.port, m_flowSensor.port_a)
-    annotation(Line(points = {{10, 0}, {20, 0}}, color = {0, 127, 255}));
-
-  connect(m_flowSensor.port_b, boilerPipe.port_a)
-    annotation(Line(points = {{40, 0}, {50, 0}}, color = {0, 127, 255}));
-
-  connect(boilerPipe.port_b, T_outletSensor.port)
-    annotation(Line(points = {{70, 0}, {90, 0}}, color = {0, 127, 255}));
-
-  // Primary loop: supply hot water to secondary loop
-  connect(T_outletSensor.port, port_a)
-    annotation(Line(points = {{100, 0}, {100, 0}}, color = {0, 127, 255}));
+  // SECONDARY LOOP CONNECTIONS
+  connect(supplyTee.port_3, port_a);
+  connect(port_b, returnTee.port_3);
   
   // Pump speed is controlled by the enable signal:
   // - When enable = true: pump runs at 1500 RPM (N_nominal)
   // - When enable = false: pump runs at 0 RPM (off)
-  connect(enable, pumpSpeedConverter.u)
-    annotation(Line(points = {{-120, 0}, {-110, 0}, {-110, 50}, {-102, 50}}, color = {255, 0, 255}));
+  connect(enable, pumpSpeedConverter.u);
 
-  connect(pumpSpeedConverter.y, pumpSpeedGain.u)
-    annotation(Line(points = {{-79, 50}, {-72, 50}}, color = {0, 0, 127}));
+  connect(pumpSpeedConverter.y, pumpSpeedGain.u);
 
-  connect(pumpSpeedGain.y, primaryPump.N_in)
-    annotation(Line(points = {{-49, 50}, {-60, 50}, {-60, 10}}, color = {0, 0, 127}));
+  connect(pumpSpeedGain.y, primaryPump.N_in);
   
-  // Heat transfer connections
-  // Connect boiler pipe heat ports to both heater (via collector) and ambient convection
-  connect(boilerPipe.heatPorts, heatCollector.port_a)
-    annotation(Line(points = {{40, 5}, {40, 20}, {0, 20}, {0, 10}}, color = {191, 0, 0}));
+  // COMBUSTION CHAMBER HEAT TRANSFER
+  // The boilerPipe represents the heat exchanger tubes that water flows through
+  // The combustionChamber adds heat to these tubes (via the collector)
+  // All 10 nodes of the heat exchanger receive heat from the combustion chamber
+  // IMPORTANT: Combustion chamber heat goes ONLY to boilerPipe, not to other pipes!
+  connect(boilerPipe.heatPorts, heatExchangerCollector.port_a);
 
-  connect(heatCollector.port_b, heater.port)
-    annotation(Line(points = {{0, 30}, {0, 40}}, color = {191, 0, 0}));
+  connect(heatExchangerCollector.port_b, combustionChamber.port);
 
-  // Connect ambient heat transfer for natural cooling (boiler pipe)
-  connect(heatCollector.port_b, ambientConductor.port_a)
-    annotation(Line(points = {{0, 30}, {0, 20}, {20, 20}, {20, -60}}, color = {191, 0, 0}));
+  // NOTE: Ambient heat loss from boilerPipe is neglected for now
+  // The combustion chamber is the ONLY heat source for the heat exchanger
+  // This simplifies initialization and focuses on the primary heat transfer
 
-  connect(ambientConductor.port_b, ambientTemp.port)
-    annotation(Line(points = {{20, -80}, {20, -70}, {60, -70}}, color = {191, 0, 0}));
+  // AMBIENT HEAT LOSS FOR PRIMARY LOOP PIPES
+  connect(ambientConductor.port_b, ambientTemp.port);
 
-  // Connect ambient heat transfer for return pipe (connect all heat ports)
-  connect(closelySpacedTees.heatPorts, heatCollector.port_a)
-    annotation(Line(points = {{-80, -5}, {-80, -20}, {0, -20}, {0, 10}}, color = {191, 0, 0}));
+  connect(returnPipe.heatPorts, returnPipeCollector.port_a);
+
+  connect(returnPipeCollector.port_b, ambientConductor.port_a);
+
+  connect(boilerOutletPipe.heatPorts, outletPipeCollector.port_a);
+
+  connect(outletPipeCollector.port_b, ambientConductor.port_a);
+
+  connect(pumpDischargePipe.heatPorts, dischargePipeCollector.port_a);
+
+  connect(dischargePipeCollector.port_b, ambientConductor.port_a);
   
   // Setpoint controller
-  connect(T_inletSensor.T, setpointController.T_inlet)
-    annotation(Line(points = {{0, 11}, {0, 30}, {-50, 30}, {-50, 50}, {-42, 50}}, color = {0, 0, 127}));
+  connect(T_inletSensor.T, setpointController.T_inlet);
 
   // High limit controller
-  connect(T_inletSensor.T, highLimitController.T_inlet)
-    annotation(Line(points = {{0, 11}, {0, 40}, {-50, 40}, {-50, 70}, {-42, 70}}, color = {0, 0, 127}));
+  connect(T_inletSensor.T, highLimitController.T_inlet);
 
   // Combine setpoint and high limit conditions first
-  connect(setpointController.setpointOK, setpointAndHighLimit.u1)
-    annotation(Line(points = {{-19, 50}, {-82, 50}, {-82, 54}}, color = {255, 0, 255}));
+  connect(setpointController.setpointOK, setpointAndHighLimit.u1);
 
-  connect(highLimitController.highLimitOK, setpointAndHighLimit.u2)
-    annotation(Line(points = {{-19, 70}, {-30, 70}, {-30, 66}, {-82, 66}}, color = {255, 0, 255}));
+  connect(highLimitController.highLimitOK, setpointAndHighLimit.u2);
 
   // Create signal for when boiler wants to fire
-  connect(enable, boilerWantsToFire.u1)
-    annotation(Line(points = {{-120, 0}, {-110, 0}, {-110, 34}, {-102, 34}}, color = {255, 0, 255}));
+  connect(enable, boilerWantsToFire.u1);
 
-  connect(setpointAndHighLimit.y, boilerWantsToFire.u2)
-    annotation(Line(points = {{-59, 60}, {-110, 60}, {-110, 26}, {-102, 26}}, color = {255, 0, 255}));
+  connect(setpointAndHighLimit.y, boilerWantsToFire.u2);
 
   // Connect minimum run time controller - use feedback to track when boiler is actually firing
   // Connect boiler enable output back to minimum run time controller (creates feedback loop)
-  connect(boilerEnableLogic.y, minimumRunTimeController.enable)
-    annotation(Line(points = {{-39, -50}, {-50, -50}, {-50, 30}, {-42, 30}}, color = {255, 0, 255}));
+  connect(boilerEnableLogic.y, minimumRunTimeController.enable);
 
-  connect(highLimitController.highLimitTripped, minimumRunTimeController.highLimitTripped)
-    annotation(Line(points = {{-19, 76}, {-30, 76}, {-30, 24}, {-42, 24}}, color = {255, 0, 255}));
+  connect(highLimitController.highLimitTripped, minimumRunTimeController.highLimitTripped);
 
   // Final enable logic: boiler wants to fire OR boiler must stay on (minimum run time)
-  connect(boilerWantsToFire.y, boilerEnableWithMinRunTime.u1)
-    annotation(Line(points = {{-79, 30}, {-70, 30}, {-70, 14}, {-42, 14}}, color = {255, 0, 255}));
+  connect(boilerWantsToFire.y, boilerEnableWithMinRunTime.u1);
 
-  connect(minimumRunTimeController.mustStayOn, boilerEnableWithMinRunTime.u2)
-    annotation(Line(points = {{-19, 30}, {-10, 30}, {-10, 6}, {-42, 6}}, color = {255, 0, 255}));
+  connect(minimumRunTimeController.mustStayOn, boilerEnableWithMinRunTime.u2);
 
   // Final enable logic
-  connect(enable, boilerEnableLogic.u1)
-    annotation(Line(points = {{-120, 0}, {-100, 0}, {-100, -44}, {-62, -44}}, color = {255, 0, 255}));
+  connect(enable, boilerEnableLogic.u1);
 
-  connect(boilerEnableWithMinRunTime.y, boilerEnableLogic.u2)
-    annotation(Line(points = {{-19, 10}, {-10, 10}, {-10, -50}, {-62, -50}}, color = {255, 0, 255}));
+  connect(boilerEnableWithMinRunTime.y, boilerEnableLogic.u2);
   
   // Control logic: on/off switch - Q_max when enabled, 0 when disabled
-  connect(maxHeat.y, enableSwitch.u1)
-    annotation(Line(points = {{-39, 20}, {-32, 20}, {-32, 4}}, color = {0, 0, 127}));
+  connect(maxHeat.y, enableSwitch.u1);
   
-  connect(zeroHeat.y, enableSwitch.u3)
-    annotation(Line(points = {{-39, -20}, {-32, -20}, {-32, -4}}, color = {0, 0, 127}));
+  connect(zeroHeat.y, enableSwitch.u3);
   
-  connect(boilerEnableLogic.y, enableSwitch.u2)
-    annotation(Line(points = {{-39, -50}, {-50, -50}, {-50, 0}, {-32, 0}}, color = {255, 0, 255}));
+  connect(boilerEnableLogic.y, enableSwitch.u2);
   
-  connect(enableSwitch.y, heater.Q_flow)
-    annotation(Line(points = {{-9, 0}, {0, 0}, {0, 40}}, color = {0, 0, 127}));
+  connect(enableSwitch.y, combustionChamber.Q_flow);
   
   // Outputs
-  connect(enableSwitch.y, Q_actual)
-    annotation(Line(points = {{-9, 0}, {80, 0}, {80, -20}, {110, -20}}, color = {0, 0, 127}));
+  connect(enableSwitch.y, Q_actual);
   
-  connect(m_flowSensor.m_flow, m_flow)
-    annotation(Line(points = {{30, 11}, {30, -40}, {110, -40}}, color = {0, 0, 127}));
+  connect(m_flowSensor.m_flow, m_flow);
   
   // Convert pressure from Pa to PSI (1 PSI = 6894.76 Pa)
-  connect(p_sensor.p, p_PSI_converter.u)
-    annotation(Line(points = {{-30, 11}, {-30, -50}, {58, -50}}, color = {0, 0, 127}));
+  connect(p_sensor.p, p_PSI_converter.u);
   
-  connect(p_PSI_converter.y, p_PSI)
-    annotation(Line(points = {{81, -50}, {110, -50}}, color = {0, 0, 127}));
+  connect(p_PSI_converter.y, p_PSI);
   
-  connect(T_inletSensor.T, T_inlet)
-    annotation(Line(points = {{0, 11}, {0, -80}, {110, -80}}, color = {0, 0, 127}));
+  connect(T_inletSensor.T, T_inlet);
   
-  connect(T_outletSensor.T, T_outlet)
-    annotation(Line(points = {{100, 11}, {100, -100}, {110, -100}}, color = {0, 0, 127}));
+  connect(T_outletSensor.T, T_outlet);
   
   // High limit status output
-  connect(highLimitController.highLimitTripped, highLimitTripped)
-    annotation(Line(points = {{-19, 76}, {50, 76}, {50, 80}, {110, 80}}, color = {255, 0, 255}));
+  connect(highLimitController.highLimitTripped, highLimitTripped);
 
   annotation(
     Icon(graphics = {

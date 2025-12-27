@@ -14,26 +14,16 @@ model PrimarySecondaryBoilerTest "Test of TanklessBoiler with primary/secondary 
     p_ambient = 101325, T_ambient = 273.15 + 20)
     "System properties";
 
-  // Tankless boiler (primary loop)
+  // Tankless boiler (primary loop with internal closely spaced tees)
   TanklessBoiler boiler(
     Q_max_kBTU = 120,
     T_setpoint_F = 170,
     highLimit_F = 180,
+    T_ambient_F = 40,
     m_flow_GPM = 5.0,
     primaryLoopVolume_gal = 2.0,
     redeclare package Medium = Medium)
-    "Tankless boiler with primary loop";
-
-  // Closely spaced tees using ideal junctions (no volume, just flow balance)
-  Modelica.Fluid.Fittings.TeeJunctionIdeal supplyTee(
-    redeclare package Medium = Medium)
-    "Supply tee: boiler supply → primary return + secondary intake"
-    annotation(Placement(transformation(extent = {{40, -10}, {60, 10}})));
-
-  Modelica.Fluid.Fittings.TeeJunctionIdeal returnTee(
-    redeclare package Medium = Medium)
-    "Return tee: secondary return + primary supply → boiler return"
-    annotation(Placement(transformation(extent = {{-40, -10}, {-20, 10}})));
+    "Tankless boiler with internal primary loop and closely spaced tees";
 
   // Secondary loop pump
   Modelica.Fluid.Machines.PrescribedPump secondaryPump(
@@ -49,90 +39,127 @@ model PrimarySecondaryBoilerTest "Test of TanklessBoiler with primary/secondary 
     "Secondary loop circulator pump"
     annotation(Placement(transformation(extent = {{80, -10}, {100, 10}})));
 
-  // Simplified: direct connection from supply tee to return tee (no load components)
+  // Secondary loop storage tank (50 gallon)
+  Modelica.Fluid.Vessels.OpenTank storageTank(
+    redeclare package Medium = Medium,
+    height = 1.2,
+    crossArea = 0.126,
+    level_start = 0.6,
+    portsData = {
+      Modelica.Fluid.Vessels.BaseClasses.VesselPortsData(diameter = 0.0254),
+      Modelica.Fluid.Vessels.BaseClasses.VesselPortsData(diameter = 0.0254)},
+    nPorts = 2,
+    use_HeatTransfer = true,
+    T_start = 273.15 + 0)
+    "50 gallon storage tank (189 liters) - starts at 32°F (0°C)"
+    annotation(Placement(transformation(extent = {{60, 20}, {80, 40}})));
 
-  // Flow control for secondary pump (constant speed for testing)
-  Modelica.Blocks.Sources.Constant secondaryPumpSpeed(k = 1500)
-    "Secondary pump speed (RPM)"
-    annotation(Placement(transformation(extent = {{-10, 20}, {10, 40}})));
+  // Ambient heat loss from storage tank
+  // G = 100 W/K gives realistic heat loss for typical residential tank
+  // At ΔT=10°F (5.6K): 100 × 5.6 = 560W ≈ 1900 BTU/hr (typical for 50-gal tank)
+  // This should give ~3-5°F/hr heat loss, which is realistic
+  Modelica.Thermal.HeatTransfer.Components.ThermalConductor tankHeatLoss(G = 100.0)
+    "Heat loss from tank to ambient (typical residential insulation)"
+    annotation(Placement(transformation(extent = {{60, 50}, {80, 70}})));
 
-  // Control signal - simple constant enable
-  Modelica.Blocks.Sources.BooleanConstant enableSignal(k = true)
-    "Boiler enable signal (always on for testing)"
+  Modelica.Thermal.HeatTransfer.Sources.FixedTemperature ambientTemp(T = 273.15 + 4.44)
+    "Ambient temperature (40°F = 4.44°C)"
+    annotation(Placement(transformation(extent = {{40, 50}, {60, 70}})));
+
+  // Flow control for secondary pump (runs for 18 minutes, then stops)
+  Modelica.Blocks.Sources.Constant pumpSpeedOn(k = 1500)
+    "Pump running speed"
+    annotation(Placement(transformation(extent = {{80, 30}, {100, 50}})));
+  
+  Modelica.Blocks.Sources.Constant pumpSpeedOff(k = 0)
+    "Pump stopped"
+    annotation(Placement(transformation(extent = {{80, 10}, {100, 30}})));
+  
+  Modelica.Blocks.Sources.BooleanPulse pumpTimer(
+    width = 49.72,
+    period = 3600,
+    startTime = 10)
+    "Pump ON from 10s to 1800s (30 min), then OFF"
+    annotation(Placement(transformation(extent = {{60, 20}, {80, 40}})));
+  
+  Modelica.Blocks.Logical.Switch pumpSpeedSwitch
+    "Switch between ON and OFF speeds"
+    annotation(Placement(transformation(extent = {{110, 20}, {130, 40}})));
+
+  // Control signal - simple ON for 10 minutes then OFF
+  Modelica.Blocks.Sources.BooleanStep enableStep(startTime = 600)
+    "ON for first 10 minutes, then OFF"
+    annotation(Placement(transformation(extent = {{-120, 40}, {-100, 60}})));
+  
+  Modelica.Blocks.Logical.Not notBlock
+    "Invert: start with ON (true), turn OFF at 600s"
     annotation(Placement(transformation(extent = {{-100, 40}, {-80, 60}})));
 
-  // Simplified sensor connections - connect directly to main flow paths
-
-  // Simplified: no sensors for now to focus on basic hydraulic operation
-
-  // Note: Expansion tank temporarily removed to resolve connection issues
-  // Will be added back once basic primary-secondary system is working
-
 equation
-  // Primary loop connections through closely spaced tees
-  // Boiler supply → supply tee port_a → primary return port_b + secondary intake port_c
-  connect(boiler.port_a, supplyTee.port_a)
-    annotation(Line(points = {{100, 0}, {70, 0}, {70, 0}, {40, 0}}, color = {0, 127, 255}));
+  // SECONDARY LOOP CONNECTIONS
+  // Boiler supply (hot water) → secondary pump
+  connect(boiler.port_a, secondaryPump.port_a)
+    annotation(Line(points = {{100, 0}, {80, 0}}, color = {0, 127, 255}));
 
-  // Secondary loop connections through closely spaced tees
-  // Secondary pump → supply tee port_c → return tee port_a → back to pump
-  connect(secondaryPump.port_b, supplyTee.port_c)
-    annotation(Line(points = {{80, 0}, {70, 0}, {70, 0}, {50, 0}}, color = {0, 127, 255}));
+  // Secondary pump → storage tank inlet (bottom port)
+  connect(secondaryPump.port_b, storageTank.ports[1])
+    annotation(Line(points = {{100, 0}, {110, 0}, {110, 20}, {68, 20}}, color = {0, 127, 255}));
 
-  // Simplified secondary loop: supply tee directly to return tee
-  connect(supplyTee.port_c, returnTee.port_a)
-    annotation(Line(points = {{50, 0}, {10, 0}, {10, 0}, {-30, 0}}, color = {0, 127, 255}));
+  // Storage tank outlet (top port) → boiler return (cool water back)
+  connect(storageTank.ports[2], boiler.port_b)
+    annotation(Line(points = {{72, 20}, {72, -20}, {-100, -20}, {-100, 0}}, color = {0, 127, 255}));
 
-  connect(returnTee.port_a, secondaryPump.port_a)
-    annotation(Line(points = {{-30, 0}, {-20, 0}, {90, 0}}, color = {0, 127, 255}));
+  // THERMAL CONNECTIONS
+  // Storage tank heat loss to ambient
+  connect(storageTank.heatPort, tankHeatLoss.port_a)
+    annotation(Line(points = {{70, 40}, {70, 60}}, color = {191, 0, 0}));
 
-  // Complete the primary loop: supply tee port_b → return tee port_b → boiler return
-  connect(supplyTee.port_b, returnTee.port_b)
-    annotation(Line(points = {{50, 0}, {10, 0}, {10, 0}, {-30, 0}}, color = {0, 127, 255}));
+  connect(tankHeatLoss.port_b, ambientTemp.port)
+    annotation(Line(points = {{80, 60}, {60, 60}}, color = {191, 0, 0}));
 
-  connect(returnTee.port_c, boiler.port_b)
-    annotation(Line(points = {{-40, 0}, {-60, 0}, {-60, 0}, {-100, 0}}, color = {0, 127, 255}));
+  // CONTROL CONNECTIONS
+  connect(enableStep.y, notBlock.u);
+  connect(notBlock.y, boiler.enable);
 
-  // Note: Expansion tank and load simulation temporarily removed for simplicity
-
-  // Control connections
-  connect(enableSignal.y, boiler.enable)
-    annotation(Line(points = {{-79, 50}, {-70, 50}, {-70, 40}, {-120, 40}, {-120, 0}, {-120, 0}}, color = {255, 0, 255}));
-
-  connect(secondaryPumpSpeed.y, secondaryPump.N_in)
-    annotation(Line(points = {{11, 30}, {90, 30}, {90, 10}}, color = {0, 0, 127}));
+  // Secondary pump speed control with timer
+  // BooleanPulse: false initially, true during pulse, false after
+  // Switch: when u2=false, output u3 (OFF); when u2=true, output u1 (ON)
+  // Result: OFF for 10s, ON from 10s-1800s, OFF after 1800s
+  connect(pumpTimer.y, pumpSpeedSwitch.u2);
+  connect(pumpSpeedOn.y, pumpSpeedSwitch.u1);
+  connect(pumpSpeedOff.y, pumpSpeedSwitch.u3);
+  connect(pumpSpeedSwitch.y, secondaryPump.N_in);
 
   annotation(
-    experiment(StartTime = 0, StopTime = 3600, Tolerance = 1e-6, Interval = 10),
+    experiment(StartTime = 0, StopTime = 86400, Tolerance = 1e-6, Interval = 100),
     Documentation(info = "<html>
     <p>
-    Primary/Secondary Loop Boiler Test Model
+    <b>Primary/Secondary Loop Boiler Test Model</b>
     </p>
     <p>
-    This example demonstrates a tankless boiler with primary/secondary loop architecture
-    featuring closely spaced tees. The system includes:
+    This example demonstrates a tankless boiler with primary/secondary loop architecture.
+    The system includes:
     </p>
     <ul>
-    <li><b>Primary Loop:</b> Internal to the boiler (closed loop with pump and heating elements)</li>
-    <li><b>Secondary Loop:</b> Distribution system that draws hot water from and returns cooler
-        water to the primary loop through closely spaced tees</li>
-    <li><b>Closely Spaced Tees:</b> Short pipes connecting primary and secondary loops,
-        minimizing mixing between the two circuits</li>
+    <li><b>Primary Loop:</b> Internal to the boiler with dedicated pump and closely spaced tees
+        for hydraulic separation (built into the TanklessBoiler component)</li>
+    <li><b>Secondary Loop:</b> Independent distribution system with its own pump and 50-gallon
+        storage tank. Flow path: Boiler port_a → Pump → Tank → Boiler port_b</li>
+    <li><b>Storage Tank:</b> 50-gallon open tank with heat loss to ambient, simulating
+        thermal load on the system</li>
     </ul>
     <p>
-    <b>How Closely Spaced Tees Work:</b><br/>
-    In a primary/secondary system, the closely spaced tees allow the secondary loop to operate
-    at different flow rates and temperatures than the primary loop. Hot water from the boiler's
-    primary loop is supplied to the secondary loop, and cooler return water from the secondary
-    loop flows back to the primary loop. The short tee pipes ensure hydraulic separation between
-    the two loops while allowing thermal exchange.
+    <b>How Hydraulic Separation Works:</b><br/>
+    The boiler's internal closely spaced tees provide hydraulic decoupling between
+    the primary and secondary loops, allowing each pump to operate independently.
     </p>
     <p>
     <b>System Operation:</b><br/>
-    - The boiler's primary pump maintains circulation through the boiler
-    - The secondary pump draws hot water for distribution
-    - Heat loss in the secondary loop simulates building load
-    - Temperatures and flow rates can be monitored at various points
+    - Boiler primary pump: 5 GPM constant circulation (internal)<br/>
+    - Secondary pump: 1500 RPM (approximately 3-4 GPM)<br/>
+    - Storage tank loses heat to 20°C ambient<br/>
+    - Boiler maintains 170°F setpoint with 180°F high limit<br/>
+    - Observe temperature stratification in tank and heat transfer dynamics
     </p>
     </html>"));
 end PrimarySecondaryBoilerTest;
