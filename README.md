@@ -21,9 +21,8 @@ This library provides components for simulating tankless boiler systems commonly
   - `HighLimitController`: Safety cutoff with time delays
   - `MinimumRunTimeController`: Prevents short cycling
 
-- **Example Models**:
-  - `SimpleBoilerTest`: Basic boiler operation test
-  - `PrimarySecondaryBoilerTest`: Primary-secondary loop with closely spaced tees
+- **Example Model**:
+  - `PrimarySecondaryBoilerTest`: Complete primary-secondary loop system with closely spaced tees
 
 ## Primary-Secondary Loop Architecture
 
@@ -40,24 +39,28 @@ This architecture allows:
 
 ## Usage
 
-### Simple Boiler Test
+The primary example demonstrates a complete primary-secondary loop system:
 
 ```modelica
-model SimpleTest
+// See TanklessBoilers/Examples/PrimarySecondaryBoilerTest.mo
+model PrimarySecondaryBoilerTest
   TanklessBoiler boiler(
     Q_max_kBTU = 120,
     T_setpoint_F = 170,
     m_flow_GPM = 5.0);
   
-  Modelica.Blocks.Sources.BooleanConstant enable(k=true);
-equation
-  connect(enable.y, boiler.enable);
-end SimpleTest;
+  // Closely spaced tees for hydraulic separation
+  Modelica.Fluid.Fittings.TeeJunctionIdeal supplyTee;
+  Modelica.Fluid.Fittings.TeeJunctionIdeal returnTee;
+  
+  // Independent secondary pump
+  Modelica.Fluid.Machines.PrescribedPump secondaryPump;
+  
+  // ... connections and control logic
+end PrimarySecondaryBoilerTest;
 ```
 
-### Primary-Secondary Loop
-
-See `TanklessBoilers/Examples/PrimarySecondaryBoilerTest.mo` for a complete example.
+For the complete implementation, see `TanklessBoilers/Examples/PrimarySecondaryBoilerTest.mo`.
 
 ## Parameters
 
@@ -78,14 +81,14 @@ See `TanklessBoilers/Examples/PrimarySecondaryBoilerTest.mo` for a complete exam
 
 ## Development
 
-### Running Tests
+### Running the Example
 
 ```bash
-# Compile and run simple boiler test
-omc --simulate TanklessBoilers.Examples.SimpleBoilerTest.mo
-
-# Run primary-secondary test
+# Compile and run primary-secondary loop test
 omc --simulate TanklessBoilers.Examples.PrimarySecondaryBoilerTest.mo
+
+# Or use the Makefile
+make primary
 ```
 
 ## Known Issues

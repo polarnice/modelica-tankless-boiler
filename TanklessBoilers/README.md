@@ -128,8 +128,7 @@ The boiler includes an internal closed primary loop with a dedicated circulator 
 
 ## Examples
 
-- `TanklessBoilers.Examples.SimpleBoilerTest` - Standalone boiler test with secondary loop (includes expansion tank for pressure reference)
-- `TanklessBoilers.Examples.SimpleExample` - Basic usage example
+- `TanklessBoilers.Examples.PrimarySecondaryBoilerTest` - Complete primary-secondary loop system with closely spaced tees demonstrating hydraulic separation between boiler and distribution loops
 
 ## Requirements
 
