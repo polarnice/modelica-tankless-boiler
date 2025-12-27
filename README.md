@@ -44,6 +44,7 @@ This architecture allows:
 - OpenModelica (for simulation)
 - Python 3.10+ (for plotting)
 - `uv` (Python package manager - installed automatically via `make setup`)
+- Rust toolchain (installed automatically via `make setup` for Modelica linting)
 
 ### Initial Setup
 
@@ -58,6 +59,9 @@ This will:
 - Install `uv` package manager (if not already installed)
 - Create a Python virtual environment (`.venv/`)
 - Install Python dependencies (matplotlib, numpy, dymat)
+- Install Rust toolchain (for Modelica linting tools)
+- Install `rumoca-fmt` and `rumoca-lint` (Modelica formatter and linter)
+- Install `ruff` (Python linter)
 - Install TruffleHog for secret scanning
 - Set up the pre-commit git hook
 
@@ -67,11 +71,17 @@ This will:
 make test    # Run simulation and generate plots
 make run     # Run simulation only
 make plot    # Generate plots from existing results
-make lint    # Run security scanning
+make lint    # Run all linting checks (secrets, Python, Modelica)
 make clean   # Remove build artifacts
 ```
 
-The pre-commit hook will automatically run `make lint` before each commit to scan for secrets.
+**Linting Targets:**
+- `make lint` - Run all linting checks
+- `make lint-secrets` - Scan for secrets with TruffleHog
+- `make lint-python` - Lint Python files with ruff
+- `make lint-modelica` - Format and lint Modelica files with rumoca
+
+The pre-commit hook will automatically run `make lint` before each commit to check for secrets, Python issues, and Modelica code quality.
 
 ## Usage
 

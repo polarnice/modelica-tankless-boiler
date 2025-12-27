@@ -1,4 +1,4 @@
-.PHONY: help test clean run plot setup lint
+.PHONY: help test clean run plot setup lint lint-secrets lint-python lint-modelica
 
 # Build directory for all artifacts
 BUILD_DIR := build
@@ -54,21 +54,71 @@ setup: ## Setup development environment (install dependencies and git hooks)
 	@echo "Setting up development environment..."
 	@echo "Installing Python dependencies with uv..."
 	@uv sync
+	@echo "Installing Rust (if needed)..."
+	@if ! command -v cargo &> /dev/null; then \
+		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
+		export PATH="$$HOME/.cargo/bin:$$PATH"; \
+	fi
+	@echo "Installing rumoca..."
+	@if ! command -v rumoca-fmt &> /dev/null; then \
+		export PATH="$$HOME/.cargo/bin:$$PATH"; \
+		cargo install --git https://github.com/CogniPilot/rumoca --bin rumoca-fmt --bin rumoca-lint; \
+	fi
 	@echo "Installing TruffleHog..."
 	@if ! command -v trufflehog &> /dev/null; then \
 		curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b $(HOME)/.local/bin; \
 	fi
+	@echo "Installing ruff..."
+	@uv pip install ruff
 	@echo "Installing git pre-commit hook..."
 	@ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
 	@echo "✓ Development environment setup complete!"
 	@echo "  - Python venv: $(VENV_DIR)"
+	@echo "  - Rust toolchain installed"
+	@echo "  - rumoca-fmt and rumoca-lint installed"
 	@echo "  - TruffleHog installed to ~/.local/bin"
+	@echo "  - ruff installed"
 	@echo "  - Pre-commit hook installed"
 
-lint: ## Run security scanning with TruffleHog
+# Modelica source files
+MODEL_FILES := $(shell find TanklessBoilers -name '*.mo' 2>/dev/null)
+PYTHON_FILES := $(shell find . -name '*.py' -not -path './.venv/*' -not -path './build/*' 2>/dev/null)
+
+lint: lint-secrets lint-python lint-modelica ## Run all linting checks
+
+lint-secrets: ## Run security scanning with TruffleHog
 	@echo "Running TruffleHog security scan..."
 	@trufflehog git file://. --only-verified --fail
 	@echo "✓ No secrets detected"
+
+lint-python: ## Lint Python files with ruff
+	@echo "Linting Python files with ruff..."
+	@if command -v ruff &> /dev/null || [ -f $(VENV_DIR)/bin/ruff ]; then \
+		uv run ruff check $(PYTHON_FILES) || true; \
+	else \
+		echo "⚠ ruff not found, skipping Python linting"; \
+	fi
+	@echo "✓ Python linting complete"
+
+lint-modelica: ## Format and lint Modelica files with rumoca
+	@export PATH="$$HOME/.cargo/bin:$$PATH"; \
+	echo "Formatting Modelica files with rumoca-fmt..."; \
+	if command -v rumoca-fmt &> /dev/null; then \
+		for file in $(MODEL_FILES); do \
+			rumoca-fmt --check $$file || true; \
+		done; \
+	else \
+		echo "⚠ rumoca-fmt not found, skipping Modelica formatting check"; \
+	fi; \
+	echo "Linting Modelica files with rumoca-lint..."; \
+	if command -v rumoca-lint &> /dev/null; then \
+		for file in $(MODEL_FILES); do \
+			rumoca-lint $$file || true; \
+		done; \
+	else \
+		echo "⚠ rumoca-lint not found, skipping Modelica linting"; \
+	fi; \
+	echo "✓ Modelica linting complete"
 
 clean: ## Clean build artifacts
 	@rm -rf $(BUILD_DIR)/ $(RESULTS_DIR)/
