@@ -1,0 +1,35 @@
+# Build artifacts
+build/
+*.mat
+*.log
+*.json
+*.exe
+*.dll
+*.so
+
+# OpenModelica temp files
+*.c
+*.o
+*.h
+*.makefile
+*.libs
+*.fmu
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
