@@ -21,7 +21,7 @@ run: $(BUILD_DIR) $(RESULTS_DIR) ## Run primary-secondary loop example
 	@echo 'loadFile("TanklessBoilers/package.mo");' >> $(BUILD_DIR)/run.mos
 	@echo 'checkModel(TanklessBoilers.Examples.PrimarySecondaryBoilerTest);' >> $(BUILD_DIR)/run.mos
 	@echo 'cd("$(BUILD_DIR)");' >> $(BUILD_DIR)/run.mos
-	@echo 'simulate(TanklessBoilers.Examples.PrimarySecondaryBoilerTest);' >> $(BUILD_DIR)/run.mos
+	@echo 'simulate(TanklessBoilers.Examples.PrimarySecondaryBoilerTest, stopTime=3600, numberOfIntervals=5000);' >> $(BUILD_DIR)/run.mos
 	@echo 'getErrorString();' >> $(BUILD_DIR)/run.mos
 	@omc $(BUILD_DIR)/run.mos 2>&1 | grep -v "^Warning:" | grep -v "^Notification:" | grep -v "^Error: Internal" || true
 	@if [ -f $(BUILD_DIR)/TanklessBoilers.Examples.PrimarySecondaryBoilerTest_res.mat ]; then \
@@ -59,10 +59,10 @@ setup: ## Setup development environment (install dependencies and git hooks)
 		curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
 		export PATH="$$HOME/.cargo/bin:$$PATH"; \
 	fi
-	@echo "Installing rumoca..."
-	@if ! command -v rumoca-fmt &> /dev/null; then \
+	@echo "Installing rumoca-lint..."
+	@if ! command -v rumoca-lint &> /dev/null; then \
 		export PATH="$$HOME/.cargo/bin:$$PATH"; \
-		cargo install --git https://github.com/CogniPilot/rumoca --bin rumoca-fmt --bin rumoca-lint; \
+		cargo install --git https://github.com/CogniPilot/rumoca --bin rumoca-lint; \
 	fi
 	@echo "Installing TruffleHog..."
 	@if ! command -v trufflehog &> /dev/null; then \
@@ -75,7 +75,7 @@ setup: ## Setup development environment (install dependencies and git hooks)
 	@echo "✓ Development environment setup complete!"
 	@echo "  - Python venv: $(VENV_DIR)"
 	@echo "  - Rust toolchain installed"
-	@echo "  - rumoca-fmt and rumoca-lint installed"
+	@echo "  - rumoca-lint installed"
 	@echo "  - TruffleHog installed to ~/.local/bin"
 	@echo "  - ruff installed"
 	@echo "  - Pre-commit hook installed"
@@ -100,17 +100,11 @@ lint-python: ## Lint Python files with ruff
 	fi
 	@echo "✓ Python linting complete"
 
-lint-modelica: ## Format and lint Modelica files with rumoca
+lint-modelica: ## Lint Modelica files with rumoca
 	@export PATH="$$HOME/.cargo/bin:$$PATH"; \
-	echo "Formatting Modelica files with rumoca-fmt..."; \
-	if command -v rumoca-fmt &> /dev/null; then \
-		for file in $(MODEL_FILES); do \
-			rumoca-fmt --check $$file || true; \
-		done; \
-	else \
-		echo "⚠ rumoca-fmt not found, skipping Modelica formatting check"; \
-	fi; \
+	export MODELICAPATH="$${MODELICAPATH:-/opt/modelica-libraries}:$$HOME/.openmodelica/libraries"; \
 	echo "Linting Modelica files with rumoca-lint..."; \
+	echo "Note: Library import warnings are expected if MSL is not accessible to rumoca"; \
 	if command -v rumoca-lint &> /dev/null; then \
 		for file in $(MODEL_FILES); do \
 			rumoca-lint $$file || true; \

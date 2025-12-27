@@ -34,11 +34,11 @@ def plot_results(mat_file):
     # Extract time vector from any variable's abscissa
     try:
         time, _, _ = dm.abscissa('boiler.Q_actual')
-    except:
+    except Exception:
         # Fallback to Time variable
         try:
             time = dm.abscissa(dm.names()[0])[0]
-        except:
+        except Exception:
             print("Error: Could not extract time vector")
             return
     
@@ -52,7 +52,7 @@ def plot_results(mat_file):
     def get_var(name):
         try:
             return dm.data(name)
-        except:
+        except Exception:
             print(f"Warning: Variable '{name}' not found in results")
             return None
     
@@ -63,7 +63,6 @@ def plot_results(mat_file):
     boiler_m_flow = get_var('boiler.m_flow')
     
     tank_T = get_var('storageTank.medium.T')
-    tank_level = get_var('storageTank.level')
     
     secondary_pump_m_flow = get_var('secondaryPump.m_flow')
     
@@ -165,14 +164,14 @@ def plot_results(mat_file):
     if boiler_Q is not None:
         avg_heat = watts_to_kbtu(np.mean(boiler_Q))
         max_heat = watts_to_kbtu(np.max(boiler_Q))
-        print(f"\nBoiler Heat Output:")
+        print("\nBoiler Heat Output:")
         print(f"  Average: {avg_heat:.1f} kBTU/h")
         print(f"  Maximum: {max_heat:.1f} kBTU/h")
     
     if boiler_T_inlet is not None and boiler_T_outlet is not None:
         avg_inlet = kelvin_to_fahrenheit(np.mean(boiler_T_inlet))
         avg_outlet = kelvin_to_fahrenheit(np.mean(boiler_T_outlet))
-        print(f"\nBoiler Temperatures:")
+        print("\nBoiler Temperatures:")
         print(f"  Average Inlet:  {avg_inlet:.1f}°F")
         print(f"  Average Outlet: {avg_outlet:.1f}°F")
         print(f"  Average ΔT:     {avg_outlet - avg_inlet:.1f}°F")
@@ -180,13 +179,13 @@ def plot_results(mat_file):
     if tank_T is not None:
         avg_tank = kelvin_to_fahrenheit(np.mean(tank_T))
         final_tank = kelvin_to_fahrenheit(tank_T[-1])
-        print(f"\nStorage Tank:")
+        print("\nStorage Tank:")
         print(f"  Average Temperature: {avg_tank:.1f}°F")
         print(f"  Final Temperature:   {final_tank:.1f}°F")
     
     if boiler_m_flow is not None:
         avg_primary = boiler_m_flow.mean() * 15.85
-        print(f"\nFlow Rates:")
+        print("\nFlow Rates:")
         print(f"  Primary Loop:   {avg_primary:.2f} GPM")
     
     if secondary_pump_m_flow is not None:
